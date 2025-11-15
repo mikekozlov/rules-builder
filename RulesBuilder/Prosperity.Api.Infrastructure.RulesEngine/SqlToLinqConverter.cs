@@ -1,10 +1,22 @@
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Globalization;
 using System.Linq.Dynamic.Core;
 using System.Linq.Expressions;
+using System.Reflection;
+using System.Text.RegularExpressions;
 
 namespace Prosperity.Api.Infrastructure.RulesEngine;
 
 public class SqlToLinqConverter : ISqlToLinqConverter
 {
+    private static readonly Regex LikeRegex = new(@"(?<prop>\w+(?:\.\w+)*)\s+like\s+'(?<pattern>[^']*)'", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex ComparisonRegex = new(@"(?<prop>\w+(?:\.\w+)*)\s*(?<op>==|!=|<>|>=|<=|>|<)\s*'(?<value>[^']*)'", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex NullComparisonRegex = new(@"(?<prop>\w+(?:\.\w+)*)\s+is\s+(?<neg>not\s+)?null", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex OperatorTokenRegex = new(@"\b(greaterthanorequal|greaterthan|lessthanorequal|lessthan|equal|notequal)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex BooleanOperatorRegex = new(@"\b(and|or|not)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private readonly ConcurrentDictionary<Type, EntityMetadata> _metadataCache = new();
+
     public Expression<Func<T, bool>> ConvertToExpression<T>(string sqlWhereClause)
     {
         if (string.IsNullOrWhiteSpace(sqlWhereClause))
@@ -12,7 +24,6 @@ public class SqlToLinqConverter : ISqlToLinqConverter
             return _ => true;
         }
         var dynamicExpression = ConvertToDynamicExpression(sqlWhereClause, typeof(T));
-        System.Console.WriteLine($"Converted SQL expression: {sqlWhereClause} -> {dynamicExpression}");
         var parameter = Expression.Parameter(typeof(T), "p");
         try
         {
@@ -26,173 +37,78 @@ public class SqlToLinqConverter : ISqlToLinqConverter
         }
         catch (Exception ex)
         {
-            System.Console.WriteLine($"Error parsing expression: {ex.Message}");
-            System.Console.WriteLine($"Expression: {dynamicExpression}");
-            throw;
+            throw new InvalidOperationException($"Failed to parse expression '{dynamicExpression}': {ex.Message}", ex);
         }
     }
 
     private string ConvertToDynamicExpression(string sql, Type entityType)
     {
-        var result = sql.Trim();
-        if (result.StartsWith('(') && result.EndsWith(')'))
-        {
-            var depth = 0;
-            var shouldRemove = true;
-            for (int i = 0; i < result.Length; i++)
-            {
-                if (result[i] == '(') depth++;
-                else if (result[i] == ')') depth--;
-                if (depth == 0 && i < result.Length - 1)
-                {
-                    shouldRemove = false;
-                    break;
-                }
-            }
-            if (shouldRemove && depth == 0)
-            {
-                result = result.Substring(1, result.Length - 2).Trim();
-            }
-        }
-        var properties = entityType.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
-        result = ConvertNestedPropertyPaths(result, entityType);
-        foreach (var prop in properties)
-        {
-            var camelCase = ToCamelCase(prop.Name);
-            var pascalCase = prop.Name;
-            result = System.Text.RegularExpressions.Regex.Replace(
-                result,
-                $@"\b{System.Text.RegularExpressions.Regex.Escape(camelCase)}\b(?!\s*\.)",
-                pascalCase,
-                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-        }
-        result = ConvertLikeOperator(result);
-        result = System.Text.RegularExpressions.Regex.Replace(result, @"\bgreaterthan\b", ">", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-        result = System.Text.RegularExpressions.Regex.Replace(result, @"\bgreaterthanorequal\b", ">=", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-        result = System.Text.RegularExpressions.Regex.Replace(result, @"\blessthan\b", "<", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-        result = System.Text.RegularExpressions.Regex.Replace(result, @"\blessthanorequal\b", "<=", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-        result = System.Text.RegularExpressions.Regex.Replace(result, @"\bequal\b", "==", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-        result = System.Text.RegularExpressions.Regex.Replace(result, @"\bnotequal\b", "<>", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-        result = System.Text.RegularExpressions.Regex.Replace(result, @"\b(and|or|not)\b",
-            m => m.Value.ToUpperInvariant(),
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-        result = result.Replace("!=", "<>", StringComparison.Ordinal);
-        result = ConvertStringValues(result, entityType);
-        return result;
+        var trimmed = RemoveOuterParentheses(sql);
+        var operatorNormalized = NormalizeOperators(trimmed);
+        var nullHandled = ConvertNullComparisons(operatorNormalized, entityType);
+        var likeHandled = ConvertLikeOperator(nullHandled, entityType);
+        return ConvertComparisonValues(likeHandled, entityType);
     }
 
-    private string ConvertNestedPropertyPaths(string sql, Type entityType)
+    private string ConvertLikeOperator(string sql, Type entityType)
     {
-        var result = sql;
-        var nestedPathPattern = @"\b(\w+)\s*\.\s*(\w+)\b";
-        result = System.Text.RegularExpressions.Regex.Replace(result, nestedPathPattern, match =>
+        return LikeRegex.Replace(sql, match =>
         {
-            var firstSegment = match.Groups[1].Value;
-            var secondSegment = match.Groups[2].Value;
-            var firstProp = entityType.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
-                .FirstOrDefault(p => string.Equals(p.Name, firstSegment, StringComparison.OrdinalIgnoreCase) ||
-                                     string.Equals(ToCamelCase(p.Name), firstSegment, StringComparison.OrdinalIgnoreCase));
-            if (firstProp != null)
+            var property = AlignPropertyPath(match.Groups["prop"].Value, entityType, out var propertyType);
+            if (propertyType != typeof(string))
             {
-                var firstPropName = firstProp.Name;
-                var propType = Nullable.GetUnderlyingType(firstProp.PropertyType) ?? firstProp.PropertyType;
-                var nestedProperties = propType.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
-                var secondProp = nestedProperties.FirstOrDefault(p =>
-                    string.Equals(p.Name, secondSegment, StringComparison.OrdinalIgnoreCase) ||
-                    string.Equals(ToCamelCase(p.Name), secondSegment, StringComparison.OrdinalIgnoreCase));
-                if (secondProp != null)
-                {
-                    var secondPropName = secondProp.Name;
-                    return $"{firstPropName}.{secondPropName}";
-                }
+                throw new InvalidOperationException($"LIKE can only be used with string properties. Property '{property}' is of type '{propertyType.Name}'.");
             }
-            return match.Value;
-        }, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-        return result;
-    }
-
-    private string ConvertLikeOperator(string sql)
-    {
-        var likePattern = @"(\w+(?:\.\w+)?)\s+like\s+'([^']*)'";
-        return System.Text.RegularExpressions.Regex.Replace(sql, likePattern, match =>
-        {
-            var property = match.Groups[1].Value;
-            var pattern = match.Groups[2].Value;
+            var pattern = match.Groups["pattern"].Value;
+            if (ContainsInnerWildcards(pattern))
+            {
+                throw new InvalidOperationException($"LIKE pattern '{pattern}' is not supported. Only leading and trailing '%' wildcards are allowed.");
+            }
             if (pattern.StartsWith('%') && pattern.EndsWith('%'))
             {
                 var value = pattern.Trim('%');
-                return $"{property}.Contains(\"{value}\")";
+                return $"{property}.Contains(\"{EscapeStringLiteral(value)}\")";
             }
-            else if (pattern.EndsWith('%'))
+            if (pattern.EndsWith('%'))
             {
                 var value = pattern.TrimEnd('%');
-                return $"{property}.StartsWith(\"{value}\")";
+                return $"{property}.StartsWith(\"{EscapeStringLiteral(value)}\")";
             }
-            else if (pattern.StartsWith('%'))
+            if (pattern.StartsWith('%'))
             {
                 var value = pattern.TrimStart('%');
-                return $"{property}.EndsWith(\"{value}\")";
+                return $"{property}.EndsWith(\"{EscapeStringLiteral(value)}\")";
             }
-            else
-            {
-                return $"{property} == \"{pattern}\"";
-            }
-        }, System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            return $"{property} == \"{EscapeStringLiteral(pattern)}\"";
+        });
     }
 
-    private string ConvertStringValues(string sql, Type entityType)
+    private string ConvertComparisonValues(string sql, Type entityType)
     {
-        var result = sql;
-        var comparisonPattern = @"(\w+(?:\.\w+)?)\s*(==|!=|<>|>=|<=|>|<)\s*'([^']*)'";
-        result = System.Text.RegularExpressions.Regex.Replace(result, comparisonPattern, match =>
+        var result = ComparisonRegex.Replace(sql, match =>
         {
-            var property = match.Groups[1].Value;
-            var op = match.Groups[2].Value;
-            var value = match.Groups[3].Value;
-            var propType = GetPropertyType(property, entityType);
-            if (propType != null)
-            {
-                if (IsNumericType(propType))
-                {
-                    if (int.TryParse(value, out var intValue))
-                    {
-                        return $"{property} {op} {intValue}";
-                    }
-                    if (double.TryParse(value, out var doubleValue))
-                    {
-                        return $"{property} {op} {doubleValue}";
-                    }
-                }
-                else if (propType == typeof(bool))
-                {
-                    if (bool.TryParse(value, out var boolValue))
-                    {
-                        return $"{property} {op} {boolValue.ToString().ToLowerInvariant()}";
-                    }
-                }
-            }
-            return $"{property} {op} \"{value}\"";
+            var property = AlignPropertyPath(match.Groups["prop"].Value, entityType, out var propType);
+            var op = NormalizeComparisonOperator(match.Groups["op"].Value);
+            var value = match.Groups["value"].Value;
+            var formattedValue = FormatLiteral(propType, value);
+            return $"{property} {op} {formattedValue}";
         });
-        result = System.Text.RegularExpressions.Regex.Replace(result, @"'([^']*)'",
-            m => $"\"{m.Groups[1].Value}\"",
-            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
         return result;
     }
 
-    private Type? GetPropertyType(string propertyPath, Type entityType)
+    private string ConvertNullComparisons(string sql, Type entityType)
     {
-        var parts = propertyPath.Split('.');
-        var currentType = entityType;
-        foreach (var part in parts)
+        return NullComparisonRegex.Replace(sql, match =>
         {
-            var prop = currentType.GetProperties(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance)
-                .FirstOrDefault(p => string.Equals(p.Name, part, StringComparison.OrdinalIgnoreCase) ||
-                                     string.Equals(ToCamelCase(p.Name), part, StringComparison.OrdinalIgnoreCase));
-            if (prop == null)
-                return null;
-            currentType = Nullable.GetUnderlyingType(prop.PropertyType) ?? prop.PropertyType;
-        }
-        return currentType;
+            var property = AlignPropertyPath(match.Groups["prop"].Value, entityType, out var propType);
+            var underlying = Nullable.GetUnderlyingType(propType);
+            if (propType.IsValueType && underlying == null)
+            {
+                throw new InvalidOperationException($"Property '{property}' is not nullable and cannot be compared to NULL.");
+            }
+            var comparison = match.Groups["neg"].Success ? "!= null" : "== null";
+            return $"{property} {comparison}";
+        });
     }
 
     private bool IsNumericType(Type type)
@@ -211,4 +127,165 @@ public class SqlToLinqConverter : ISqlToLinqConverter
             return pascalCase.ToLowerInvariant();
         return char.ToLowerInvariant(pascalCase[0]) + pascalCase.Substring(1);
     }
+
+    private string RemoveOuterParentheses(string sql)
+    {
+        var result = sql.Trim();
+        while (result.Length > 1 && result.StartsWith('(') && result.EndsWith(')'))
+        {
+            var depth = 0;
+            var shouldRemove = true;
+            for (var i = 0; i < result.Length; i++)
+            {
+                if (result[i] == '(') depth++;
+                else if (result[i] == ')') depth--;
+                if (depth == 0 && i < result.Length - 1)
+                {
+                    shouldRemove = false;
+                    break;
+                }
+            }
+            if (!shouldRemove || depth != 0)
+            {
+                break;
+            }
+            result = result.Substring(1, result.Length - 2).Trim();
+        }
+        return result;
+    }
+
+    private string NormalizeOperators(string sql)
+    {
+        var converted = OperatorTokenRegex.Replace(sql, match => match.Value.ToLowerInvariant() switch
+        {
+            "greaterthan" => ">",
+            "greaterthanorequal" => ">=",
+            "lessthan" => "<",
+            "lessthanorequal" => "<=",
+            "equal" => "==",
+            _ => "<>"
+        });
+        converted = BooleanOperatorRegex.Replace(converted, match => match.Value.ToUpperInvariant());
+        return converted.Replace("!=", "<>", StringComparison.Ordinal);
+    }
+
+    private PropertyInfo? FindProperty(Type type, string name)
+    {
+        var metadata = GetMetadata(type);
+        return metadata.PropertiesByAlias.TryGetValue(name, out var propertyInfo) ? propertyInfo : null;
+    }
+
+    private string AlignPropertyPath(string propertyPath, Type entityType, out Type propertyType)
+    {
+        var currentType = entityType;
+        var canonicalSegments = new List<string>();
+        foreach (var segment in propertyPath.Split('.', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var property = FindProperty(currentType, segment) ?? throw new InvalidOperationException($"Property '{segment}' was not found on '{currentType.Name}'.");
+            canonicalSegments.Add(property.Name);
+            currentType = Nullable.GetUnderlyingType(property.PropertyType) ?? property.PropertyType;
+        }
+        propertyType = currentType;
+        return string.Join('.', canonicalSegments);
+    }
+
+    private string NormalizeComparisonOperator(string op)
+    {
+        return op switch
+        {
+            "<>" => "!=",
+            _ => op
+        };
+    }
+
+    private string FormatLiteral(Type targetType, string rawValue)
+    {
+        if (targetType == typeof(string))
+        {
+            return $"\"{EscapeStringLiteral(rawValue)}\"";
+        }
+        if (targetType == typeof(bool))
+        {
+            if (bool.TryParse(rawValue, out var boolValue))
+            {
+                return boolValue ? "true" : "false";
+            }
+            throw new InvalidOperationException($"Value '{rawValue}' could not be converted to boolean.");
+        }
+        if (IsNumericType(targetType))
+        {
+            if (decimal.TryParse(rawValue, NumberStyles.Float, CultureInfo.InvariantCulture, out var decimalValue))
+            {
+                var converted = Convert.ChangeType(decimalValue, targetType, CultureInfo.InvariantCulture);
+                return Convert.ToString(converted, CultureInfo.InvariantCulture)!;
+            }
+            throw new InvalidOperationException($"Value '{rawValue}' could not be converted to {targetType.Name}.");
+        }
+        if (targetType == typeof(DateTime))
+        {
+            if (DateTime.TryParse(rawValue, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind | DateTimeStyles.AssumeUniversal, out var dateTime))
+            {
+                return $"DateTime.Parse(\"{dateTime.ToString("O", CultureInfo.InvariantCulture)}\")";
+            }
+            throw new InvalidOperationException($"Value '{rawValue}' could not be converted to DateTime.");
+        }
+        if (targetType == typeof(DateTimeOffset))
+        {
+            if (DateTimeOffset.TryParse(rawValue, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind | DateTimeStyles.AssumeUniversal, out var dateTimeOffset))
+            {
+                return $"DateTimeOffset.Parse(\"{dateTimeOffset.ToString("O", CultureInfo.InvariantCulture)}\")";
+            }
+            throw new InvalidOperationException($"Value '{rawValue}' could not be converted to DateTimeOffset.");
+        }
+        if (targetType == typeof(Guid))
+        {
+            if (Guid.TryParse(rawValue, out var guid))
+            {
+                return $"Guid.Parse(\"{guid}\")";
+            }
+            throw new InvalidOperationException($"Value '{rawValue}' could not be converted to Guid.");
+        }
+        if (targetType.IsEnum)
+        {
+            if (Enum.TryParse(targetType, rawValue, true, out var enumValue))
+            {
+                var numericValue = Convert.ToInt64(enumValue, CultureInfo.InvariantCulture);
+                return numericValue.ToString(CultureInfo.InvariantCulture);
+            }
+            throw new InvalidOperationException($"Value '{rawValue}' could not be converted to enum '{targetType.Name}'.");
+        }
+        return $"\"{EscapeStringLiteral(rawValue)}\"";
+    }
+
+    private static bool ContainsInnerWildcards(string pattern)
+    {
+        if (pattern.Length == 0)
+        {
+            return false;
+        }
+        var trimmed = pattern.Trim('%');
+        return trimmed.Contains('%') || pattern.Contains('_');
+    }
+
+    private string EscapeStringLiteral(string value)
+    {
+        return value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal);
+    }
+
+    private EntityMetadata GetMetadata(Type type)
+    {
+        return _metadataCache.GetOrAdd(type, t =>
+        {
+            var properties = t.GetProperties(BindingFlags.Public | BindingFlags.Instance);
+            var aliasMap = new Dictionary<string, PropertyInfo>(StringComparer.OrdinalIgnoreCase);
+            foreach (var property in properties)
+            {
+                aliasMap[property.Name] = property;
+                aliasMap[ToCamelCase(property.Name)] = property;
+            }
+            return new EntityMetadata(properties, aliasMap);
+        });
+    }
+
+    private sealed record EntityMetadata(IReadOnlyCollection<PropertyInfo> Properties, IReadOnlyDictionary<string, PropertyInfo> PropertiesByAlias);
 }

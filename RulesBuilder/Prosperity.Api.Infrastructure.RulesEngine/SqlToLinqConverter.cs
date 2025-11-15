@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Linq.Dynamic.Core;
 using System.Linq.Expressions;
 using System.Reflection;
@@ -13,6 +14,7 @@ public class SqlToLinqConverter : ISqlToLinqConverter
     private static readonly Regex LikeRegex = new(@"(?<prop>\w+(?:\.\w+)*)\s+like\s+'(?<pattern>[^']*)'", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex ComparisonRegex = new(@"(?<prop>\w+(?:\.\w+)*)\s*(?<op>==|!=|<>|>=|<=|>|<)\s*'(?<value>[^']*)'", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex NullComparisonRegex = new(@"(?<prop>\w+(?:\.\w+)*)\s+is\s+(?<neg>not\s+)?null", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex InOperatorRegex = new(@"(?<prop>\w+(?:\.\w+)*)\s+(?<neg>not\s+)?in\s*\((?<values>[^)]*)\)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex OperatorTokenRegex = new(@"\b(greaterthanorequal|greaterthan|lessthanorequal|lessthan|equal|notequal)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex BooleanOperatorRegex = new(@"\b(and|or|not)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private readonly ConcurrentDictionary<Type, EntityMetadata> _metadataCache = new();
@@ -47,7 +49,8 @@ public class SqlToLinqConverter : ISqlToLinqConverter
         var operatorNormalized = NormalizeOperators(trimmed);
         var nullHandled = ConvertNullComparisons(operatorNormalized, entityType);
         var likeHandled = ConvertLikeOperator(nullHandled, entityType);
-        return ConvertComparisonValues(likeHandled, entityType);
+        var inHandled = ConvertInOperator(likeHandled, entityType);
+        return ConvertComparisonValues(inHandled, entityType);
     }
 
     private string ConvertLikeOperator(string sql, Type entityType)
@@ -94,6 +97,25 @@ public class SqlToLinqConverter : ISqlToLinqConverter
             return $"{property} {op} {formattedValue}";
         });
         return result;
+    }
+
+    private string ConvertInOperator(string sql, Type entityType)
+    {
+        return InOperatorRegex.Replace(sql, match =>
+        {
+            var property = AlignPropertyPath(match.Groups["prop"].Value, entityType, out var propertyType);
+            var negated = match.Groups["neg"].Success;
+            var rawValues = match.Groups["values"].Value;
+            var parsedValues = ParseInValues(rawValues).ToArray();
+            if (parsedValues.Length == 0)
+            {
+                throw new InvalidOperationException("IN operator requires at least one value.");
+            }
+            var formattedValues = parsedValues.Select(value => FormatLiteral(propertyType, value));
+            var arrayExpression = $"new [] {{ {string.Join(", ", formattedValues)} }}";
+            var containsExpression = $"{arrayExpression}.Contains({property})";
+            return negated ? $"!{containsExpression}" : containsExpression;
+        });
     }
 
     private string ConvertNullComparisons(string sql, Type entityType)
@@ -270,6 +292,38 @@ public class SqlToLinqConverter : ISqlToLinqConverter
     private string EscapeStringLiteral(string value)
     {
         return value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal);
+    }
+
+    private IEnumerable<string> ParseInValues(string values)
+    {
+        var result = new List<string>();
+        var current = new List<char>();
+        var inQuotes = false;
+        foreach (var ch in values)
+        {
+            if (ch == '\'')
+            {
+                inQuotes = !inQuotes;
+                continue;
+            }
+            if (ch == ',' && !inQuotes)
+            {
+                var item = new string(current.ToArray()).Trim();
+                if (item.Length > 0)
+                {
+                    result.Add(item);
+                }
+                current.Clear();
+                continue;
+            }
+            current.Add(ch);
+        }
+        var last = new string(current.ToArray()).Trim();
+        if (last.Length > 0)
+        {
+            result.Add(last);
+        }
+        return result.Select(value => value.Trim());
     }
 
     private EntityMetadata GetMetadata(Type type)

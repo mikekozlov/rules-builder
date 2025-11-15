@@ -7,11 +7,11 @@ namespace Prosperity.Api.Infrastructure.RulesEngine;
 /// <summary>
 /// Builds NRules rule definitions dynamically from SQL conditions and output objects
 /// </summary>
-public class DynamicRuleBuilder
+public class DynamicRuleBuilder : IDynamicRuleBuilder
 {
-    private readonly SqlToLinqConverter _sqlConverter;
+    private readonly ISqlToLinqConverter _sqlConverter;
 
-    public DynamicRuleBuilder(SqlToLinqConverter sqlConverter)
+    public DynamicRuleBuilder(ISqlToLinqConverter sqlConverter)
     {
         _sqlConverter = sqlConverter;
     }

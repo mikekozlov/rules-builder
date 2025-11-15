@@ -3,7 +3,7 @@ using System.Linq.Expressions;
 
 namespace Prosperity.Api.Infrastructure.RulesEngine;
 
-public class SqlToLinqConverter
+public class SqlToLinqConverter : ISqlToLinqConverter
 {
     public Expression<Func<T, bool>> ConvertToExpression<T>(string sqlWhereClause)
     {

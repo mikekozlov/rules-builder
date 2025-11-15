@@ -6,8 +6,8 @@ public static class RulesEngineServiceCollection
 {
     public static IServiceCollection AddRulesEngine(this IServiceCollection services)
     {
-        services.AddSingleton<SqlToLinqConverter>();
-        services.AddSingleton<DynamicRuleBuilder>();
+        services.AddSingleton<ISqlToLinqConverter, SqlToLinqConverter>();
+        services.AddSingleton<IDynamicRuleBuilder, DynamicRuleBuilder>();
         services.AddSingleton<IRuleStore, InMemoryRuleStore>();
         services.AddScoped(typeof(IDynamicRulesEngine<,>), typeof(DynamicRulesEngine<,>));
         return services;

@@ -7,12 +7,12 @@ namespace Prosperity.Api.Infrastructure.RulesEngine;
 
 public sealed class DynamicRulesEngine<TFact, TOutput> : IDynamicRulesEngine<TFact, TOutput>
 {
-    private readonly DynamicRuleBuilder _ruleBuilder;
+    private readonly IDynamicRuleBuilder _ruleBuilder;
     private readonly IRuleStore _ruleStore;
     private readonly JsonSerializerOptions _ruleSerializerOptions;
     private readonly JsonSerializerOptions _outputSerializerOptions;
 
-    public DynamicRulesEngine(DynamicRuleBuilder ruleBuilder, IRuleStore ruleStore)
+    public DynamicRulesEngine(IDynamicRuleBuilder ruleBuilder, IRuleStore ruleStore)
         : this(
             ruleBuilder,
             ruleStore,
@@ -22,7 +22,7 @@ public sealed class DynamicRulesEngine<TFact, TOutput> : IDynamicRulesEngine<TFa
     }
 
     public DynamicRulesEngine(
-        DynamicRuleBuilder ruleBuilder,
+        IDynamicRuleBuilder ruleBuilder,
         IRuleStore ruleStore,
         JsonSerializerOptions ruleSerializerOptions,
         JsonSerializerOptions outputSerializerOptions)

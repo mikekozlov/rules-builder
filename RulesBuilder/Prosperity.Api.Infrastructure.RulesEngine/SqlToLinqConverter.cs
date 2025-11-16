@@ -111,10 +111,19 @@ public class SqlToLinqConverter : ISqlToLinqConverter
             {
                 throw new InvalidOperationException("IN operator requires at least one value.");
             }
-            var formattedValues = parsedValues.Select(value => FormatLiteral(propertyType, value));
-            var arrayExpression = $"new [] {{ {string.Join(", ", formattedValues)} }}";
-            var containsExpression = $"{arrayExpression}.Contains({property})";
-            return negated ? $"!{containsExpression}" : containsExpression;
+
+            var formattedValues = parsedValues
+                .Select(value => FormatLiteral(propertyType, value))
+                .ToArray();
+
+            var comparisons = formattedValues
+                .Select(value => negated ? $"{property} != {value}" : $"{property} == {value}")
+                .ToArray();
+
+            var @operator = negated ? " && " : " || ";
+            return comparisons.Length == 1
+                ? comparisons[0]
+                : $"({string.Join(@operator, comparisons)})";
         });
     }
 

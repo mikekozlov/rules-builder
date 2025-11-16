@@ -10,6 +10,8 @@ public static class RulesEngineServiceCollection
         services.AddSingleton<IDynamicRuleBuilder, DynamicRuleBuilder>();
         services.AddSingleton<IRuleStore, InMemoryRuleStore>();
         services.AddScoped(typeof(IDynamicRulesEngine<,>), typeof(DynamicRulesEngine<,>));
+        services.AddScoped<CptRuleIngestionService>();
+        services.AddHostedService<CptRuleIngestionHostedService>();
         return services;
     }
 }

@@ -101,6 +101,24 @@ public class CptRuleIngestionServiceTests
         Assert.That(matchCount, Is.EqualTo(1));
     }
 
+    [Test]
+    public async Task IngestAsync_PopulatesStoredRuleMetadata()
+    {
+        //Arrange
+        var ingestionService = new CptRuleIngestionService(_engine, _ruleStore);
+
+        //Act
+        await ingestionService.IngestAsync();
+        var storedRule = await _ruleStore.GetAsync(DefaultCptRules.RuleSetKey, "Initial Intake");
+
+        //Assert
+        Assert.That(storedRule, Is.Not.Null);
+        Assert.That(storedRule!.Domain, Is.EqualTo("codeAssist"));
+        Assert.That(storedRule.Description, Is.EqualTo("90791: Intake performed by non-MD including LCSW/LPC/etc."));
+        Assert.That(string.IsNullOrWhiteSpace(storedRule.RuleSerialization), Is.False);
+        Assert.That(storedRule.Metadata, Is.Not.Null);
+    }
+
     private static IEnumerable<TestCaseData> DefaultRuleCoverageTestCases()
     {
         yield return new TestCaseData(

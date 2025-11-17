@@ -1,9 +1,33 @@
 namespace Prosperity.Api.Infrastructure.RulesEngine;
 
-public sealed class StoredRule(string name, string condition, string ruleJson, string? outputJson)
+public sealed class StoredRule
 {
-    public string Name { get; } = name;
-    public string Condition { get; } = condition;
-    public string RuleJson { get; } = ruleJson;
-    public string? OutputJson { get; } = outputJson;
+    public StoredRule(
+        string name,
+        string condition,
+        string ruleJson,
+        string? outputJson,
+        string? domain = null,
+        string? description = null,
+        string? ruleSerialization = null,
+        RuleMetadata? metadata = null)
+    {
+        Name = name;
+        Condition = condition;
+        RuleJson = ruleJson;
+        OutputJson = outputJson;
+        Domain = domain;
+        Description = description;
+        RuleSerialization = ruleSerialization;
+        Metadata = metadata;
+    }
+
+    public string Name { get; }
+    public string Condition { get; }
+    public string RuleJson { get; }
+    public string? OutputJson { get; }
+    public string? Domain { get; }
+    public string? Description { get; }
+    public string? RuleSerialization { get; }
+    public RuleMetadata? Metadata { get; }
 }

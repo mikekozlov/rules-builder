@@ -41,6 +41,10 @@ public sealed class DynamicRulesEngine<TFact, TOutput> : IDynamicRulesEngine<TFa
         string condition,
         TOutput outputTemplate,
         string? ruleName = null,
+        string? domain = null,
+        string? description = null,
+        string? ruleSerialization = null,
+        RuleMetadata? metadata = null,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -53,7 +57,15 @@ public sealed class DynamicRulesEngine<TFact, TOutput> : IDynamicRulesEngine<TFa
         var ruleJson = JsonSerializer.Serialize(ruleDefinition, _ruleSerializerOptions);
         var outputJson = JsonSerializer.Serialize(outputTemplate, _outputSerializerOptions);
 
-        var storedRule = new StoredRule(effectiveName, condition, ruleJson, outputJson);
+        var storedRule = new StoredRule(
+            effectiveName,
+            condition,
+            ruleJson,
+            outputJson,
+            domain,
+            description,
+            ruleSerialization,
+            metadata);
 
         await _ruleStore.SaveAsync(ruleSetKey, storedRule, cancellationToken);
 

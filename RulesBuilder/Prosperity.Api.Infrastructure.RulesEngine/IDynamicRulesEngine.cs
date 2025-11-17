@@ -7,6 +7,10 @@ public interface IDynamicRulesEngine<TFact, TOutput>
         string condition,
         TOutput outputTemplate,
         string? ruleName = null,
+        string? domain = null,
+        string? description = null,
+        string? ruleSerialization = null,
+        RuleMetadata? metadata = null,
         CancellationToken cancellationToken = default);
 
     Task<EvaluationResult<TFact, TOutput>> EvaluateAsync(

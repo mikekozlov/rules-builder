@@ -26,9 +26,13 @@ public sealed class CptRuleIngestionService
             var output = new CptCodeOutput(definition.CptCodes.ToList());
             await _rulesEngine.CreateRuleAsync(
                 DefaultCptRules.RuleSetKey,
-                definition.Condition,
+                definition.RuleSql,
                 output,
                 definition.RuleName,
+                definition.Domain,
+                definition.Description,
+                definition.RuleSerialization,
+                definition.Metadata,
                 cancellationToken);
         }
     }

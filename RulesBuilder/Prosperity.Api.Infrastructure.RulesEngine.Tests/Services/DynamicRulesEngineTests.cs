@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using AutoFixture.NUnit3;
@@ -49,13 +50,17 @@ public class DynamicRulesEngineTests
     {
         var sqlConverter = new SqlToLinqConverter();
         var ruleBuilder = new DynamicRuleBuilder(sqlConverter);
-        var ruleStore = new InMemoryRuleStore();
-        var engine = new DynamicRulesEngine<Encounter, CptCodeOutput>(ruleBuilder, ruleStore);
+        var ruleCreator = new DynamicRulesEngine<Encounter, CptCodeOutput>(ruleBuilder);
 
         var condition = "(noteType = 'Intake Note' and encounterDuration >= 60 and providerCredentials in ('MD','PSY'))";
         var output = new CptCodeOutput(["90791"]);
-        await engine.CreateRuleAsync(RuleSetKey, condition, output, "Intake_90791");
+        var storedRule = await ruleCreator.CreateRuleAsync(RuleSetKey, condition, output, "Intake_90791");
 
-        return engine;
+        var initialRules = new Dictionary<string, IReadOnlyCollection<StoredRule>>
+        {
+            { RuleSetKey, new[] { storedRule } }
+        };
+
+        return new DynamicRulesEngine<Encounter, CptCodeOutput>(ruleBuilder, initialRules);
     }
 }

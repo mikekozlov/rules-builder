@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using NRules;
 using NRules.Json;
@@ -8,14 +10,15 @@ namespace Prosperity.Api.Infrastructure.RulesEngine;
 public sealed class DynamicRulesEngine<TFact, TOutput> : IDynamicRulesEngine<TFact, TOutput>
 {
     private readonly IDynamicRuleBuilder _ruleBuilder;
-    private readonly IRuleStore _ruleStore;
     private readonly JsonSerializerOptions _ruleSerializerOptions;
     private readonly JsonSerializerOptions _outputSerializerOptions;
+    private readonly Dictionary<string, List<StoredRule>> _ruleSets;
+    private readonly object _ruleSetsSync;
 
-    public DynamicRulesEngine(IDynamicRuleBuilder ruleBuilder, IRuleStore ruleStore)
+    public DynamicRulesEngine(IDynamicRuleBuilder ruleBuilder)
         : this(
             ruleBuilder,
-            ruleStore,
+            null,
             CreateDefaultRuleSerializerOptions(),
             CreateDefaultOutputSerializerOptions())
     {
@@ -23,20 +26,39 @@ public sealed class DynamicRulesEngine<TFact, TOutput> : IDynamicRulesEngine<TFa
 
     public DynamicRulesEngine(
         IDynamicRuleBuilder ruleBuilder,
-        IRuleStore ruleStore,
+        IReadOnlyDictionary<string, IReadOnlyCollection<StoredRule>>? initialRuleSets)
+        : this(
+            ruleBuilder,
+            initialRuleSets,
+            CreateDefaultRuleSerializerOptions(),
+            CreateDefaultOutputSerializerOptions())
+    {
+    }
+
+    public DynamicRulesEngine(
+        IDynamicRuleBuilder ruleBuilder,
+        IReadOnlyDictionary<string, IReadOnlyCollection<StoredRule>>? initialRuleSets,
         JsonSerializerOptions ruleSerializerOptions,
         JsonSerializerOptions outputSerializerOptions)
     {
         _ruleBuilder = ruleBuilder;
-        _ruleStore = ruleStore;
-
         _ruleSerializerOptions = new JsonSerializerOptions(ruleSerializerOptions);
         _outputSerializerOptions = new JsonSerializerOptions(outputSerializerOptions);
+        _ruleSets = new Dictionary<string, List<StoredRule>>(StringComparer.Ordinal);
+        _ruleSetsSync = new object();
+
+        if (initialRuleSets != null)
+        {
+            foreach (var (ruleSetKey, storedRules) in initialRuleSets)
+            {
+                _ruleSets[ruleSetKey] = storedRules?.ToList() ?? new List<StoredRule>();
+            }
+        }
 
         RuleSerializer.Setup(_ruleSerializerOptions);
     }
 
-    public async Task<StoredRule> CreateRuleAsync(
+    public Task<StoredRule> CreateRuleAsync(
         string ruleSetKey,
         string condition,
         TOutput outputTemplate,
@@ -67,29 +89,32 @@ public sealed class DynamicRulesEngine<TFact, TOutput> : IDynamicRulesEngine<TFa
             ruleSerialization,
             metadata);
 
-        await _ruleStore.SaveAsync(ruleSetKey, storedRule, cancellationToken);
+        AddOrUpdateRule(ruleSetKey, storedRule);
 
-        return storedRule;
+        return Task.FromResult(storedRule);
     }
 
-    public async Task<EvaluationResult<TFact, TOutput>> EvaluateAsync(
+    public Task<EvaluationResult<TFact, TOutput>> EvaluateAsync(
         string ruleSetKey,
         TFact fact,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var storedRules = await _ruleStore.GetAllAsync(ruleSetKey, cancellationToken);
+        var storedRules = GetRuleSnapshot(ruleSetKey);
         if (storedRules.Count == 0)
         {
-            return new EvaluationResult<TFact, TOutput>(fact, []);
+            return Task.FromResult(new EvaluationResult<TFact, TOutput>(fact, []));
         }
 
-        var ruleDefinitions = storedRules.Select(storedRule => JsonSerializer.Deserialize<IRuleDefinition>(storedRule.RuleJson, _ruleSerializerOptions)).OfType<IRuleDefinition>().ToList();
+        var ruleDefinitions = storedRules
+            .Select(storedRule => JsonSerializer.Deserialize<IRuleDefinition>(storedRule.RuleJson, _ruleSerializerOptions))
+            .OfType<IRuleDefinition>()
+            .ToList();
 
         if (ruleDefinitions.Count == 0)
         {
-            return new EvaluationResult<TFact, TOutput>(fact, []);
+            return Task.FromResult(new EvaluationResult<TFact, TOutput>(fact, []));
         }
 
         var compiler = new RuleCompiler();
@@ -110,44 +135,77 @@ public sealed class DynamicRulesEngine<TFact, TOutput> : IDynamicRulesEngine<TFa
 
         var matches = new List<RuleMatch<TOutput>>();
 
-        if (firedRuleNames.Count == 0)
+        if (firedRuleNames.Count != 0)
         {
-            return new EvaluationResult<TFact, TOutput>(fact, matches);
+            foreach (var ruleName in firedRuleNames)
+            {
+                var storedRule = storedRules.FirstOrDefault(r => string.Equals(r.Name, ruleName, StringComparison.Ordinal));
+                if (storedRule == null)
+                {
+                    continue;
+                }
+
+                if (string.IsNullOrWhiteSpace(storedRule.OutputJson))
+                {
+                    continue;
+                }
+
+                TOutput? output;
+
+                try
+                {
+                    output = JsonSerializer.Deserialize<TOutput>(storedRule.OutputJson, _outputSerializerOptions);
+                }
+                catch
+                {
+                    continue;
+                }
+
+                if (output is null)
+                {
+                    continue;
+                }
+
+                matches.Add(new RuleMatch<TOutput>(ruleName, output));
+            }
         }
 
-        foreach (var ruleName in firedRuleNames)
+        return Task.FromResult(new EvaluationResult<TFact, TOutput>(fact, matches));
+    }
+
+    private IReadOnlyList<StoredRule> GetRuleSnapshot(string ruleSetKey)
+    {
+        lock (_ruleSetsSync)
         {
-            var storedRule = storedRules.FirstOrDefault(r => string.Equals(r.Name, ruleName, StringComparison.Ordinal));
-            if (storedRule == null)
+            if (_ruleSets.TryGetValue(ruleSetKey, out var rules) && rules.Count > 0)
             {
-                continue;
+                return rules.ToArray();
             }
-
-            if (string.IsNullOrWhiteSpace(storedRule.OutputJson))
-            {
-                continue;
-            }
-
-            TOutput? output;
-
-            try
-            {
-                output = JsonSerializer.Deserialize<TOutput>(storedRule.OutputJson, _outputSerializerOptions);
-            }
-            catch
-            {
-                continue;
-            }
-
-            if (output is null)
-            {
-                continue;
-            }
-
-            matches.Add(new RuleMatch<TOutput>(ruleName, output));
         }
 
-        return new EvaluationResult<TFact, TOutput>(fact, matches);
+        return Array.Empty<StoredRule>();
+    }
+
+    private void AddOrUpdateRule(string ruleSetKey, StoredRule rule)
+    {
+        lock (_ruleSetsSync)
+        {
+            if (!_ruleSets.TryGetValue(ruleSetKey, out var rules))
+            {
+                rules = new List<StoredRule>();
+                _ruleSets[ruleSetKey] = rules;
+            }
+
+            var existingIndex = rules.FindIndex(r => string.Equals(r.Name, rule.Name, StringComparison.Ordinal));
+            if (existingIndex >= 0)
+            {
+                rules[existingIndex] = rule;
+            }
+            else
+            {
+                rules.Add(rule);
+            }
+        }
     }
 
     private static JsonSerializerOptions CreateDefaultRuleSerializerOptions()

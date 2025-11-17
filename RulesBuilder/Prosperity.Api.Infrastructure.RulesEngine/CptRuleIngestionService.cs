@@ -24,7 +24,7 @@ public sealed class CptRuleIngestionService
             }
 
             var output = new CptCodeOutput(definition.CptCodes.ToList());
-            await _rulesEngine.CreateRuleAsync(
+            var storedRule = await _rulesEngine.CreateRuleAsync(
                 DefaultCptRules.RuleSetKey,
                 definition.RuleSql,
                 output,
@@ -34,6 +34,8 @@ public sealed class CptRuleIngestionService
                 definition.RuleSerialization,
                 definition.Metadata,
                 cancellationToken);
+
+            await _ruleStore.SaveAsync(DefaultCptRules.RuleSetKey, storedRule, cancellationToken);
         }
     }
 }

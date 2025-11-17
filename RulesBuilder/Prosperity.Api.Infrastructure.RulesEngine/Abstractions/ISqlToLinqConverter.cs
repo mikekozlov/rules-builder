@@ -1,6 +1,6 @@
 using System.Linq.Expressions;
 
-namespace Prosperity.Api.Infrastructure.RulesEngine;
+namespace Prosperity.Api.Infrastructure.RulesEngine.Abstractions;
 
 public interface ISqlToLinqConverter
 {

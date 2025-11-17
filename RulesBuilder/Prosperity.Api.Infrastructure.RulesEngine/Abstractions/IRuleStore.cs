@@ -1,4 +1,6 @@
-namespace Prosperity.Api.Infrastructure.RulesEngine;
+using Prosperity.Api.Infrastructure.RulesEngine.Models;
+
+namespace Prosperity.Api.Infrastructure.RulesEngine.Abstractions;
 
 public interface IRuleStore
 {

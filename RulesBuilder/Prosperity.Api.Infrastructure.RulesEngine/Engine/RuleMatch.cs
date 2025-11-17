@@ -1,4 +1,4 @@
-namespace Prosperity.Api.Infrastructure.RulesEngine;
+namespace Prosperity.Api.Infrastructure.RulesEngine.Engine;
 
 public sealed class RuleMatch<TOutput>
 {

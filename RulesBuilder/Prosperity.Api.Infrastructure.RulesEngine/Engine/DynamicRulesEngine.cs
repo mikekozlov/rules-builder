@@ -4,8 +4,10 @@ using System.Text.Json;
 using NRules;
 using NRules.Json;
 using NRules.RuleModel;
+using Prosperity.Api.Infrastructure.RulesEngine.Abstractions;
+using Prosperity.Api.Infrastructure.RulesEngine.Models;
 
-namespace Prosperity.Api.Infrastructure.RulesEngine;
+namespace Prosperity.Api.Infrastructure.RulesEngine.Engine;
 
 public sealed class DynamicRulesEngine<TFact, TOutput> : IDynamicRulesEngine<TFact, TOutput>
 {

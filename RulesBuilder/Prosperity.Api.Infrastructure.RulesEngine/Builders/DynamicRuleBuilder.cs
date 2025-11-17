@@ -1,8 +1,9 @@
 using System.Linq.Expressions;
 using NRules.RuleModel;
 using NRules.RuleModel.Builders;
+using Prosperity.Api.Infrastructure.RulesEngine.Abstractions;
 
-namespace Prosperity.Api.Infrastructure.RulesEngine;
+namespace Prosperity.Api.Infrastructure.RulesEngine.Builders;
 
 /// <summary>
 /// Builds NRules rule definitions dynamically from SQL conditions and output objects

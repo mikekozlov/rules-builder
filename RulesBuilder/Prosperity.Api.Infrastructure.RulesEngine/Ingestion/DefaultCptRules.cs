@@ -1,8 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Text.Json;
+using Prosperity.Api.Infrastructure.RulesEngine.Models;
 
-namespace Prosperity.Api.Infrastructure.RulesEngine;
+namespace Prosperity.Api.Infrastructure.RulesEngine.Ingestion;
 
 public sealed record CptRuleDefinition(
     string Domain,

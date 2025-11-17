@@ -1,7 +1,7 @@
 using System;
 using NRules.RuleModel;
 
-namespace Prosperity.Api.Infrastructure.RulesEngine;
+namespace Prosperity.Api.Infrastructure.RulesEngine.Abstractions;
 
 public interface IDynamicRuleBuilder
 {

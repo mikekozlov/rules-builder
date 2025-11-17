@@ -1,7 +1,8 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Prosperity.Api.Infrastructure.RulesEngine.Ingestion;
 
-namespace Prosperity.Api.Infrastructure.RulesEngine;
+namespace Prosperity.Api.Infrastructure.RulesEngine.Hosting;
 
 public sealed class CptRuleIngestionHostedService : IHostedService
 {

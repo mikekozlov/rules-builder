@@ -6,7 +6,8 @@ using FluentAssertions;
 using Moq;
 using NRules.RuleModel;
 using NUnit.Framework;
-using Prosperity.Api.Infrastructure.RulesEngine;
+using Prosperity.Api.Infrastructure.RulesEngine.Abstractions;
+using Prosperity.Api.Infrastructure.RulesEngine.Builders;
 
 namespace Prosperity.Api.Infrastructure.Storages.Tests;
 

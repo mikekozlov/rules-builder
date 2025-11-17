@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace Prosperity.Api.Infrastructure.RulesEngine;
+namespace Prosperity.Api.Infrastructure.RulesEngine.Models;
 
 public sealed record RuleMetadata(
     RuleContact Author,

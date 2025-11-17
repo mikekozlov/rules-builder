@@ -1,99 +1,68 @@
-using System;
-using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using AutoFixture.NUnit3;
+using NUnit.Framework;
 using NUnit.Framework.Legacy;
 using Prosperity.Api.Infrastructure.RulesEngine;
 
 namespace Prosperity.Api.Infrastructure.Storages.Tests.Services;
 
+[TestFixture]
 public class CptRuleIngestionServiceTests
 {
-    private InMemoryRuleStore _ruleStore = null!;
-    private IDynamicRulesEngine<Encounter, CptCodeOutput> _engine = null!;
-
-    [SetUp]
-    public void SetUp()
-    {
-        var converter = new SqlToLinqConverter();
-        var builder = new DynamicRuleBuilder(converter);
-        _ruleStore = new InMemoryRuleStore();
-        _engine = new DynamicRulesEngine<Encounter, CptCodeOutput>(builder, _ruleStore);
-    }
-
-    [Test]
+    [Test, AutoData]
     public async Task IngestAsync_WhenStoreEmpty_AddsAllDefaultRules()
     {
         //Arrange
-        var ingestionService = new CptRuleIngestionService(_engine, _ruleStore);
+        var ingestionService = CreateService(out var engine, out var ruleStore);
 
         //Act
         await ingestionService.IngestAsync();
-
-        var storedRules = await _ruleStore.GetAllAsync(DefaultCptRules.RuleSetKey);
-        Assert.That(storedRules.Count, Is.EqualTo(DefaultCptRules.All.Count));
-
+        var storedRules = await ruleStore.GetAllAsync(DefaultCptRules.RuleSetKey);
         var encounter = new Encounter("Therapy Progress Note", 45, "LCSW");
-        var evaluation = await _engine.EvaluateAsync(DefaultCptRules.RuleSetKey, encounter);
+        var evaluation = await engine.EvaluateAsync(DefaultCptRules.RuleSetKey, encounter);
 
         //Assert
+        Assert.That(storedRules.Count, Is.EqualTo(DefaultCptRules.All.Count));
         Assert.That(evaluation.HasMatches, Is.True);
         var match = evaluation.Matches.Single(m => m.RuleName == "Therapy 45 min");
         CollectionAssert.AreEquivalent(new[] { "90834", "90836" }, match.Output.CptCodes);
     }
 
-    [Test]
+    [Test, AutoData]
     public async Task IngestAsync_WhenRuleAlreadyExists_DoesNotOverride()
     {
         //Arrange
+        var ingestionService = CreateService(out var engine, out var ruleStore);
         var existingOutput = new CptCodeOutput(["00000"]);
-        await _engine.CreateRuleAsync(
+        await engine.CreateRuleAsync(
             DefaultCptRules.RuleSetKey,
             "(noteType = 'Group Note')",
             existingOutput,
             "Group Therapy");
 
-        var ingestionService = new CptRuleIngestionService(_engine, _ruleStore);
-
         //Act
         await ingestionService.IngestAsync();
+        var storedRules = await ruleStore.GetAllAsync(DefaultCptRules.RuleSetKey);
+        var evaluation = await engine.EvaluateAsync(DefaultCptRules.RuleSetKey, new Encounter("Group Note", 30, "LCSW"));
 
-        var storedRules = await _ruleStore.GetAllAsync(DefaultCptRules.RuleSetKey);
-        Assert.That(storedRules.Count, Is.EqualTo(DefaultCptRules.All.Count));
-
-        var evaluation = await _engine.EvaluateAsync(DefaultCptRules.RuleSetKey, new Encounter("Group Note", 30, "LCSW"));
         //Assert
+        Assert.That(storedRules.Count, Is.EqualTo(DefaultCptRules.All.Count));
         var match = evaluation.Matches.Single(m => m.RuleName == "Group Therapy");
         CollectionAssert.AreEquivalent(new[] { "00000" }, match.Output.CptCodes);
     }
 
-    [TestCaseSource(nameof(DefaultRuleCoverageTestCases))]
-    public async Task IngestAsync_CreatesRuleForEachDefaultDefinition(string ruleName, Func<Encounter> encounterFactory, string[] expectedCodes)
-    {
-        //Arrange
-        var ingestionService = new CptRuleIngestionService(_engine, _ruleStore);
-
-        //Act
-        await ingestionService.IngestAsync();
-        var encounter = encounterFactory();
-        var evaluation = await _engine.EvaluateAsync(DefaultCptRules.RuleSetKey, encounter);
-
-        //Assert
-        Assert.That(evaluation.HasMatches, Is.True);
-        var match = evaluation.Matches.SingleOrDefault(m => m.RuleName == ruleName);
-        Assert.That(match, Is.Not.Null);
-        CollectionAssert.AreEquivalent(expectedCodes, match!.Output.CptCodes);
-    }
-
-    [Test]
+    [Test, AutoData]
     public async Task IngestAsync_WhenCalledMultipleTimes_DoesNotDuplicateRules()
     {
         //Arrange
-        var ingestionService = new CptRuleIngestionService(_engine, _ruleStore);
+        var ingestionService = CreateService(out var engine, out var ruleStore);
 
         //Act
         await ingestionService.IngestAsync();
         await ingestionService.IngestAsync();
-        var storedRules = await _ruleStore.GetAllAsync(DefaultCptRules.RuleSetKey);
-        var evaluation = await _engine.EvaluateAsync(DefaultCptRules.RuleSetKey, new Encounter("Group Note", 30, "LCSW"));
+        var storedRules = await ruleStore.GetAllAsync(DefaultCptRules.RuleSetKey);
+        var evaluation = await engine.EvaluateAsync(DefaultCptRules.RuleSetKey, new Encounter("Group Note", 30, "LCSW"));
 
         //Assert
         Assert.That(storedRules.Count, Is.EqualTo(DefaultCptRules.All.Count));
@@ -101,15 +70,15 @@ public class CptRuleIngestionServiceTests
         Assert.That(matchCount, Is.EqualTo(1));
     }
 
-    [Test]
+    [Test, AutoData]
     public async Task IngestAsync_PopulatesStoredRuleMetadata()
     {
         //Arrange
-        var ingestionService = new CptRuleIngestionService(_engine, _ruleStore);
+        var ingestionService = CreateService(out _, out var ruleStore);
 
         //Act
         await ingestionService.IngestAsync();
-        var storedRule = await _ruleStore.GetAsync(DefaultCptRules.RuleSetKey, "Initial Intake");
+        var storedRule = await ruleStore.GetAsync(DefaultCptRules.RuleSetKey, "Initial Intake");
 
         //Assert
         Assert.That(storedRule, Is.Not.Null);
@@ -119,42 +88,109 @@ public class CptRuleIngestionServiceTests
         Assert.That(storedRule.Metadata, Is.Not.Null);
     }
 
-    private static IEnumerable<TestCaseData> DefaultRuleCoverageTestCases()
+    [Test, AutoData]
+    public async Task IngestAsync_CreatesInitialIntakeRule()
     {
-        yield return new TestCaseData(
-                "Initial Intake",
-                new Func<Encounter>(() => new Encounter("Intake Note", 60, "LCSW")),
-                new[] { "90791" })
-            .SetName("IngestAsync_CreatesRuleForEachDefaultDefinition_InitialIntake");
+        //Arrange
+        var ingestionService = CreateService(out var engine, out _);
 
-        yield return new TestCaseData(
-                "Psychiatric Intake",
-                new Func<Encounter>(() => new Encounter("Intake Note", 50, "MD")),
-                new[] { "90792" })
-            .SetName("IngestAsync_CreatesRuleForEachDefaultDefinition_PsychiatricIntake");
+        //Act
+        await ingestionService.IngestAsync();
+        var evaluation = await engine.EvaluateAsync(DefaultCptRules.RuleSetKey, new Encounter("Intake Note", 60, "LCSW"));
 
-        yield return new TestCaseData(
-                "Therapy 30 min",
-                new Func<Encounter>(() => new Encounter("Therapy Progress Note", 30, "LCSW")),
-                new[] { "90832", "90833" })
-            .SetName("IngestAsync_CreatesRuleForEachDefaultDefinition_Therapy30");
+        //Assert
+        AssertDefaultRuleMatch(evaluation, "Initial Intake", ["90791"]);
+    }
 
-        yield return new TestCaseData(
-                "Therapy 45 min",
-                new Func<Encounter>(() => new Encounter("Therapy Progress Note", 45, "LCSW")),
-                new[] { "90834", "90836" })
-            .SetName("IngestAsync_CreatesRuleForEachDefaultDefinition_Therapy45");
+    [Test, AutoData]
+    public async Task IngestAsync_CreatesPsychiatricIntakeRule()
+    {
+        //Arrange
+        var ingestionService = CreateService(out var engine, out _);
 
-        yield return new TestCaseData(
-                "Therapy 60 min",
-                new Func<Encounter>(() => new Encounter("Therapy Progress Note", 60, "LCSW")),
-                new[] { "90837", "90838" })
-            .SetName("IngestAsync_CreatesRuleForEachDefaultDefinition_Therapy60");
+        //Act
+        await ingestionService.IngestAsync();
+        var evaluation = await engine.EvaluateAsync(DefaultCptRules.RuleSetKey, new Encounter("Intake Note", 50, "MD"));
 
-        yield return new TestCaseData(
-                "Group Therapy",
-                new Func<Encounter>(() => new Encounter("Group Note", 30, "LCSW")),
-                new[] { "90853", "90849" })
-            .SetName("IngestAsync_CreatesRuleForEachDefaultDefinition_GroupTherapy");
+        //Assert
+        AssertDefaultRuleMatch(evaluation, "Psychiatric Intake", ["90792"]);
+    }
+
+    [Test, AutoData]
+    public async Task IngestAsync_CreatesTherapy30Rule()
+    {
+        //Arrange
+        var ingestionService = CreateService(out var engine, out _);
+
+        //Act
+        await ingestionService.IngestAsync();
+        var evaluation = await engine.EvaluateAsync(DefaultCptRules.RuleSetKey, new Encounter("Therapy Progress Note", 30, "LCSW"));
+
+        //Assert
+        AssertDefaultRuleMatch(evaluation, "Therapy 30 min", ["90832", "90833"]);
+    }
+
+    [Test, AutoData]
+    public async Task IngestAsync_CreatesTherapy45Rule()
+    {
+        //Arrange
+        var ingestionService = CreateService(out var engine, out _);
+
+        //Act
+        await ingestionService.IngestAsync();
+        var evaluation = await engine.EvaluateAsync(DefaultCptRules.RuleSetKey, new Encounter("Therapy Progress Note", 45, "LCSW"));
+
+        //Assert
+        AssertDefaultRuleMatch(evaluation, "Therapy 45 min", ["90834", "90836"]);
+    }
+
+    [Test, AutoData]
+    public async Task IngestAsync_CreatesTherapy60Rule()
+    {
+        //Arrange
+        var ingestionService = CreateService(out var engine, out _);
+
+        //Act
+        await ingestionService.IngestAsync();
+        var evaluation = await engine.EvaluateAsync(DefaultCptRules.RuleSetKey, new Encounter("Therapy Progress Note", 60, "LCSW"));
+
+        //Assert
+        AssertDefaultRuleMatch(evaluation, "Therapy 60 min", ["90837", "90838"]);
+    }
+
+    [Test, AutoData]
+    public async Task IngestAsync_CreatesGroupTherapyRule()
+    {
+        //Arrange
+        var ingestionService = CreateService(out var engine, out _);
+
+        //Act
+        await ingestionService.IngestAsync();
+        var evaluation = await engine.EvaluateAsync(DefaultCptRules.RuleSetKey, new Encounter("Group Note", 30, "LCSW"));
+
+        //Assert
+        AssertDefaultRuleMatch(evaluation, "Group Therapy", ["90853", "90849"]);
+    }
+
+    private static CptRuleIngestionService CreateService(
+        out IDynamicRulesEngine<Encounter, CptCodeOutput> engine,
+        out InMemoryRuleStore ruleStore)
+    {
+        var converter = new SqlToLinqConverter();
+        var builder = new DynamicRuleBuilder(converter);
+        ruleStore = new InMemoryRuleStore();
+        engine = new DynamicRulesEngine<Encounter, CptCodeOutput>(builder, ruleStore);
+        return new CptRuleIngestionService(engine, ruleStore);
+    }
+
+    private static void AssertDefaultRuleMatch(
+        EvaluationResult<Encounter, CptCodeOutput> evaluation,
+        string ruleName,
+        string[] expectedCodes)
+    {
+        Assert.That(evaluation.HasMatches, Is.True);
+        var match = evaluation.Matches.SingleOrDefault(m => m.RuleName == ruleName);
+        Assert.That(match, Is.Not.Null);
+        CollectionAssert.AreEquivalent(expectedCodes, match!.Output.CptCodes);
     }
 }

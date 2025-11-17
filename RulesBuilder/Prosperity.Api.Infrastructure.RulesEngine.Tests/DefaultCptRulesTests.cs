@@ -1,12 +1,14 @@
 using System.Linq;
+using AutoFixture.NUnit3;
 using NUnit.Framework;
 using Prosperity.Api.Infrastructure.RulesEngine;
 
 namespace Prosperity.Api.Infrastructure.Storages.Tests;
 
+[TestFixture]
 public class DefaultCptRulesTests
 {
-    [Test]
+    [Test, AutoData]
     public void All_ShouldExposeDescriptionsForEveryRule()
     {
         //Arrange
@@ -20,7 +22,7 @@ public class DefaultCptRulesTests
         Assert.That(initialIntake.Description, Is.EqualTo("90791: Intake performed by non-MD including LCSW/LPC/etc."));
     }
 
-    [Test]
+    [Test, AutoData]
     public void All_ShouldProvideMetadataAndSerialization()
     {
         //Arrange

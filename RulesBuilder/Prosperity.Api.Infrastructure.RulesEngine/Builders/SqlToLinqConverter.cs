@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Globalization;
@@ -7,6 +8,7 @@ using System.Linq.Expressions;
 using System.Reflection;
 using System.Text.RegularExpressions;
 using Prosperity.Api.Infrastructure.RulesEngine.Abstractions;
+using Prosperity.Api.Infrastructure.RulesEngine.Engine;
 
 namespace Prosperity.Api.Infrastructure.RulesEngine.Builders;
 
@@ -18,6 +20,7 @@ public class SqlToLinqConverter : ISqlToLinqConverter
     private static readonly Regex InOperatorRegex = new(@"(?<prop>\w+(?:\.\w+)*)\s+(?<neg>not\s+)?in\s*\((?<values>[^)]*)\)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex OperatorTokenRegex = new(@"\b(greaterthanorequal|greaterthan|lessthanorequal|lessthan|equal|notequal)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
     private static readonly Regex BooleanOperatorRegex = new(@"\b(and|or|not)\b", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly string ContainsAnyMethod = $"{nameof(RuleExpressionHelpers)}.{nameof(RuleExpressionHelpers.ContainsAny)}";
     private readonly ConcurrentDictionary<Type, EntityMetadata> _metadataCache = new();
 
     public Expression<Func<T, bool>> ConvertToExpression<T>(string sqlWhereClause)
@@ -33,8 +36,10 @@ public class SqlToLinqConverter : ISqlToLinqConverter
             var config = new ParsingConfig
             {
                 IsCaseSensitive = false,
-                UseParameterizedNamesInDynamicQuery = false
+                UseParameterizedNamesInDynamicQuery = false,
+                ResolveTypesBySimpleName = true
             };
+            config.UseDefaultDynamicLinqCustomTypeProvider(new[] { typeof(RuleExpressionHelpers) });
             var lambda = DynamicExpressionParser.ParseLambda(config, new[] { parameter }, typeof(bool), dynamicExpression);
             return (Expression<Func<T, bool>>)lambda;
         }
@@ -111,6 +116,16 @@ public class SqlToLinqConverter : ISqlToLinqConverter
             if (parsedValues.Length == 0)
             {
                 throw new InvalidOperationException("IN operator requires at least one value.");
+            }
+
+            if (TryGetEnumerableElementType(propertyType, out var elementType))
+            {
+                var formattedElements = parsedValues
+                    .Select(value => FormatLiteral(elementType, value))
+                    .ToArray();
+                var candidateArray = $"new[]{{{string.Join(", ", formattedElements)}}}";
+                var containsExpression = $"{ContainsAnyMethod}({property}, {candidateArray})";
+                return negated ? $"(!{containsExpression})" : containsExpression;
             }
 
             var formattedValues = parsedValues
@@ -304,6 +319,36 @@ public class SqlToLinqConverter : ISqlToLinqConverter
     {
         return value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal);
     }
+
+    private static bool TryGetEnumerableElementType(Type type, out Type elementType)
+    {
+        if (type == typeof(string))
+        {
+            elementType = typeof(char);
+            return false;
+        }
+
+        if (type.IsArray)
+        {
+            elementType = type.GetElementType() ?? typeof(object);
+            return true;
+        }
+
+        if (typeof(IEnumerable).IsAssignableFrom(type))
+        {
+            elementType = type.IsGenericType ? type.GetGenericArguments()[0] : typeof(object);
+            return true;
+        }
+
+        elementType = typeof(object);
+        return false;
+    }
+
+    private static string GetTypeName(Type type)
+    {
+        return type.FullName ?? type.Name;
+    }
+
 
     private IEnumerable<string> ParseInValues(string values)
     {

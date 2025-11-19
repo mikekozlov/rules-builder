@@ -26,7 +26,7 @@ public class CptRuleIngestionServiceTests
         await ingestionService.IngestAsync();
         var storedRules = await ruleStore.GetAllAsync(DefaultCptRules.RuleSetKey);
         var evaluationEngine = await CreateEvaluationEngineAsync(ruleStore);
-        var encounter = new Encounter("Therapy Progress Note", 45, "LCSW");
+        var encounter = new Encounter("Progress Note", 45, new[] { "LCSW" });
         var evaluation = await evaluationEngine.EvaluateAsync(DefaultCptRules.RuleSetKey, encounter);
 
         //Assert
@@ -53,7 +53,7 @@ public class CptRuleIngestionServiceTests
         await ingestionService.IngestAsync();
         var storedRules = await ruleStore.GetAllAsync(DefaultCptRules.RuleSetKey);
         var evaluationEngine = await CreateEvaluationEngineAsync(ruleStore);
-        var evaluation = await evaluationEngine.EvaluateAsync(DefaultCptRules.RuleSetKey, new Encounter("Group Note", 30, "LCSW"));
+        var evaluation = await evaluationEngine.EvaluateAsync(DefaultCptRules.RuleSetKey, new Encounter("Group Note", 30, new[] { "LCSW" }));
 
         //Assert
         Assert.That(storedRules.Count, Is.EqualTo(DefaultCptRules.All.Count));
@@ -72,7 +72,7 @@ public class CptRuleIngestionServiceTests
         await ingestionService.IngestAsync();
         var storedRules = await ruleStore.GetAllAsync(DefaultCptRules.RuleSetKey);
         var evaluationEngine = await CreateEvaluationEngineAsync(ruleStore);
-        var evaluation = await evaluationEngine.EvaluateAsync(DefaultCptRules.RuleSetKey, new Encounter("Group Note", 30, "LCSW"));
+        var evaluation = await evaluationEngine.EvaluateAsync(DefaultCptRules.RuleSetKey, new Encounter("Group Note", 30, new[] { "LCSW" }));
 
         //Assert
         Assert.That(storedRules.Count, Is.EqualTo(DefaultCptRules.All.Count));
@@ -93,7 +93,7 @@ public class CptRuleIngestionServiceTests
         //Assert
         Assert.That(storedRule, Is.Not.Null);
         Assert.That(storedRule!.Domain, Is.EqualTo("codeAssist"));
-        Assert.That(storedRule.Description, Is.EqualTo("90791: Intake performed by non-MD including LCSW/LPC/etc."));
+        Assert.That(storedRule.Description, Is.EqualTo("Initial Intake"));
         Assert.That(string.IsNullOrWhiteSpace(storedRule.RuleSerialization), Is.False);
         Assert.That(storedRule.Metadata, Is.Not.Null);
     }
@@ -107,7 +107,7 @@ public class CptRuleIngestionServiceTests
         //Act
         await ingestionService.IngestAsync();
         var evaluationEngine = await CreateEvaluationEngineAsync(ruleStore);
-        var evaluation = await evaluationEngine.EvaluateAsync(DefaultCptRules.RuleSetKey, new Encounter("Intake Note", 60, "LCSW"));
+        var evaluation = await evaluationEngine.EvaluateAsync(DefaultCptRules.RuleSetKey, new Encounter("Intake Note", 60, new[] { "LCSW" }));
 
         //Assert
         AssertDefaultRuleMatch(evaluation, "Initial Intake", ["90791"]);
@@ -122,7 +122,7 @@ public class CptRuleIngestionServiceTests
         //Act
         await ingestionService.IngestAsync();
         var evaluationEngine = await CreateEvaluationEngineAsync(ruleStore);
-        var evaluation = await evaluationEngine.EvaluateAsync(DefaultCptRules.RuleSetKey, new Encounter("Intake Note", 50, "MD"));
+        var evaluation = await evaluationEngine.EvaluateAsync(DefaultCptRules.RuleSetKey, new Encounter("Intake Note", 50, new[] { "MD" }));
 
         //Assert
         AssertDefaultRuleMatch(evaluation, "Psychiatric Intake", ["90792"]);
@@ -137,7 +137,7 @@ public class CptRuleIngestionServiceTests
         //Act
         await ingestionService.IngestAsync();
         var evaluationEngine = await CreateEvaluationEngineAsync(ruleStore);
-        var evaluation = await evaluationEngine.EvaluateAsync(DefaultCptRules.RuleSetKey, new Encounter("Therapy Progress Note", 30, "LCSW"));
+        var evaluation = await evaluationEngine.EvaluateAsync(DefaultCptRules.RuleSetKey, new Encounter("Progress Note", 30, new[] { "LCSW" }));
 
         //Assert
         AssertDefaultRuleMatch(evaluation, "Therapy 30 min", ["90832", "90833"]);
@@ -152,7 +152,7 @@ public class CptRuleIngestionServiceTests
         //Act
         await ingestionService.IngestAsync();
         var evaluationEngine = await CreateEvaluationEngineAsync(ruleStore);
-        var evaluation = await evaluationEngine.EvaluateAsync(DefaultCptRules.RuleSetKey, new Encounter("Therapy Progress Note", 45, "LCSW"));
+        var evaluation = await evaluationEngine.EvaluateAsync(DefaultCptRules.RuleSetKey, new Encounter("Progress Note", 45, new[] { "LCSW" }));
 
         //Assert
         AssertDefaultRuleMatch(evaluation, "Therapy 45 min", ["90834", "90836"]);
@@ -167,7 +167,7 @@ public class CptRuleIngestionServiceTests
         //Act
         await ingestionService.IngestAsync();
         var evaluationEngine = await CreateEvaluationEngineAsync(ruleStore);
-        var evaluation = await evaluationEngine.EvaluateAsync(DefaultCptRules.RuleSetKey, new Encounter("Therapy Progress Note", 60, "LCSW"));
+        var evaluation = await evaluationEngine.EvaluateAsync(DefaultCptRules.RuleSetKey, new Encounter("Progress Note", 60, new[] { "LCSW" }));
 
         //Assert
         AssertDefaultRuleMatch(evaluation, "Therapy 60 min", ["90837", "90838"]);
@@ -182,7 +182,7 @@ public class CptRuleIngestionServiceTests
         //Act
         await ingestionService.IngestAsync();
         var evaluationEngine = await CreateEvaluationEngineAsync(ruleStore);
-        var evaluation = await evaluationEngine.EvaluateAsync(DefaultCptRules.RuleSetKey, new Encounter("Group Note", 30, "LCSW"));
+        var evaluation = await evaluationEngine.EvaluateAsync(DefaultCptRules.RuleSetKey, new Encounter("Group Note", 30, new[] { "LCSW" }));
 
         //Assert
         AssertDefaultRuleMatch(evaluation, "Group Therapy", ["90853", "90849"]);

@@ -21,7 +21,7 @@ public class DynamicRulesEngineTests
     {
         //Arrange
         var engine = await CreateEngineAsync();
-        var encounter = new Encounter("Intake Note", 75, "MD");
+        var encounter = new Encounter("Intake Note", 75, new[] { "MD" });
 
         //Act
         var result = await engine.EvaluateAsync(RuleSetKey, encounter);
@@ -39,7 +39,7 @@ public class DynamicRulesEngineTests
     {
         //Arrange
         var engine = await CreateEngineAsync();
-        var encounter = new Encounter("Group Note", 30, "LCSW");
+        var encounter = new Encounter("Group Note", 30, new[] { "LCSW" });
 
         //Act
         var result = await engine.EvaluateAsync(RuleSetKey, encounter);

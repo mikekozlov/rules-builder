@@ -1,16 +1,15 @@
 namespace Prosperity.Api.Infrastructure.RulesEngine.Models;
 
-public class Encounter
+public class Encounter(string noteType, int? encounterDuration, string[]? providerCredentials)
 {
-    public string NoteType { get; set; } = string.Empty;
-    public int EncounterDuration { get; set; }
-    public string ProviderCredentials { get; set; } = string.Empty;
+    private string[] _providerCredentials = providerCredentials ?? System.Array.Empty<string>();
 
-    public Encounter(string noteType, int encounterDuration, string providerCredentials)
+    public string NoteType { get; set; } = noteType;
+    public int? EncounterDuration { get; set; } = encounterDuration;
+    public string[] ProviderCredentials
     {
-        NoteType = noteType;
-        EncounterDuration = encounterDuration;
-        ProviderCredentials = providerCredentials;
+        get => _providerCredentials;
+        set => _providerCredentials = value ?? System.Array.Empty<string>();
     }
 }
 

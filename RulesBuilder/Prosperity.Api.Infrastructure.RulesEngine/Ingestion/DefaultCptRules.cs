@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
+using Prosperity.Api.Infrastructure.RulesEngine.Engine;
 using Prosperity.Api.Infrastructure.RulesEngine.Models;
 
 namespace Prosperity.Api.Infrastructure.RulesEngine.Ingestion;
@@ -25,7 +27,7 @@ public static class DefaultCptRules
     [
         CreateDefinition(
             "Initial Intake",
-            "90791: Intake performed by non-MD including LCSW/LPC/etc.",
+            "Initial Intake",
             "(noteType = 'Intake Note' and providerCredentials in ('MD','PSYC','DO','LCSW','LPC','LMHC','LMFT','PSY') and encounterDuration >= 16 and encounterDuration <= 90)",
             "Intake90791",
             10,
@@ -33,7 +35,7 @@ public static class DefaultCptRules
             {
                 "f => f.NoteType == \"Intake Note\"",
                 "f => f.EncounterDuration >= 16 && f.EncounterDuration <= 90",
-                "f => new[]{\"MD\",\"PSYC\",\"DO\",\"LCSW\",\"LPC\",\"LMHC\",\"LMFT\",\"PSY\"}.Contains(f.ProviderCredentials)"
+                BuildCredentialCondition("MD", "PSYC", "DO", "LCSW", "LPC", "LMHC", "LMFT", "PSY")
             },
             new[] { "ctx => ctx.Insert(new CptFact(\"90791\"))" },
             CreateUtc(2025, 11, 13, 12, 0),
@@ -41,7 +43,7 @@ public static class DefaultCptRules
             ["90791"]),
         CreateDefinition(
             "Psychiatric Intake",
-            "90792: Intake performed by MD/DO/PSYC only.",
+            "Psychiatric Intake",
             "(noteType = 'Intake Note' and providerCredentials in ('MD','PSYC','DO') and encounterDuration >= 16 and encounterDuration <= 90)",
             "Intake90792",
             10,
@@ -49,7 +51,7 @@ public static class DefaultCptRules
             {
                 "f => f.NoteType == \"Intake Note\"",
                 "f => f.EncounterDuration >= 16 && f.EncounterDuration <= 90",
-                "f => new[]{\"MD\",\"PSYC\",\"DO\"}.Contains(f.ProviderCredentials)"
+                BuildCredentialCondition("MD", "PSYC", "DO")
             },
             new[] { "ctx => ctx.Insert(new CptFact(\"90792\"))" },
             CreateUtc(2025, 11, 13, 12, 5),
@@ -57,14 +59,15 @@ public static class DefaultCptRules
             ["90792"]),
         CreateDefinition(
             "Therapy 30 min",
-            "90832/90833 short therapy duration.",
-            "(noteType = 'Therapy Progress Note' and encounterDuration >= 16 and encounterDuration <= 37)",
+            "Therapy 30 min",
+            "(noteType = 'Progress Note' and providerCredentials in ('LCSW', 'LCSW-C', 'LISW-S', 'LPCC', 'LPC', 'LPC-MH', 'LCPC', 'LPCC-S', 'LMHC', 'LMFT', 'LAMFT', 'PSY', 'PSYD', 'PH.D') and encounterDuration >= 16 and encounterDuration <= 37)",
             "TherapyShort",
             20,
             new[]
             {
-                "f => f.NoteType == \"Therapy Progress Note\"",
-                "f => f.EncounterDuration >= 16 && f.EncounterDuration <= 37"
+                "f => f.NoteType == \"Progress Note\"",
+                "f => f.EncounterDuration >= 16 && f.EncounterDuration <= 37",
+                BuildCredentialCondition("LCSW", "LCSW-C", "LISW-S", "LPCC", "LPC", "LPC-MH", "LCPC", "LPCC-S", "LMHC", "LMFT", "LAMFT", "PSY", "PSYD", "PH.D")
             },
             new[]
             {
@@ -76,14 +79,15 @@ public static class DefaultCptRules
             ["90832", "90833"]),
         CreateDefinition(
             "Therapy 45 min",
-            "90834/90836 mid-range therapy.",
-            "(noteType = 'Therapy Progress Note' and encounterDuration >= 38 and encounterDuration <= 52)",
+            "Therapy 45 min",
+            "(noteType = 'Progress Note' and providerCredentials in ('LCSW', 'LCSW-C', 'LISW-S', 'LPCC', 'LPC', 'LPC-MH', 'LCPC', 'LPCC-S', 'LMHC', 'LMFT', 'LAMFT', 'PSY', 'PSYD', 'PH.D') and encounterDuration >= 38 and encounterDuration <= 52)",
             "TherapyMid",
             20,
             new[]
             {
-                "f => f.NoteType == \"Therapy Progress Note\"",
-                "f => f.EncounterDuration >= 38 && f.EncounterDuration <= 52"
+                "f => f.NoteType == \"Progress Note\"",
+                "f => f.EncounterDuration >= 38 && f.EncounterDuration <= 52",
+                BuildCredentialCondition("LCSW", "LCSW-C", "LISW-S", "LPCC", "LPC", "LPC-MH", "LCPC", "LPCC-S", "LMHC", "LMFT", "LAMFT", "PSY", "PSYD", "PH.D")
             },
             new[]
             {
@@ -95,14 +99,15 @@ public static class DefaultCptRules
             ["90834", "90836"]),
         CreateDefinition(
             "Therapy 60 min",
-            "90837/90838 long-duration therapy.",
-            "(noteType = 'Therapy Progress Note' and encounterDuration >= 53)",
+            "Therapy 60 min",
+            "(noteType = 'Progress Note' and providerCredentials in ('LCSW', 'LCSW-C', 'LISW-S', 'LPCC', 'LPC', 'LPC-MH', 'LCPC', 'LPCC-S', 'LMHC', 'LMFT', 'LAMFT', 'PSY', 'PSYD', 'PH.D') and encounterDuration >= 53)",
             "TherapyLong",
             20,
             new[]
             {
-                "f => f.NoteType == \"Therapy Progress Note\"",
-                "f => f.EncounterDuration >= 53"
+                "f => f.NoteType == \"Progress Note\"",
+                "f => f.EncounterDuration >= 53",
+                BuildCredentialCondition("LCSW", "LCSW-C", "LISW-S", "LPCC", "LPC", "LPC-MH", "LCPC", "LPCC-S", "LMHC", "LMFT", "LAMFT", "PSY", "PSYD", "PH.D")
             },
             new[]
             {
@@ -114,7 +119,7 @@ public static class DefaultCptRules
             ["90837", "90838"]),
         CreateDefinition(
             "Group Therapy",
-            "Group therapy CPT mapping.",
+            "Group Therapy",
             "(noteType = 'Group Note')",
             "GroupCodes",
             30,
@@ -192,6 +197,13 @@ public static class DefaultCptRules
         {
             WriteIndented = false
         });
+    }
+
+    private static string BuildCredentialCondition(params string[] credentials)
+    {
+        var method = $"{nameof(RuleExpressionHelpers)}.{nameof(RuleExpressionHelpers.ContainsAny)}";
+        var formattedCredentials = string.Join(",", credentials.Select(credential => string.Concat('"', credential, '"')));
+        return $"f => {method}(f.ProviderCredentials, new[]{{{formattedCredentials}}})";
     }
 
     private static DateTime CreateUtc(int year, int month, int day, int hour, int minute)

@@ -19,7 +19,7 @@ public class DefaultCptRulesTests
 
         //Assert
         Assert.That(rules.All(rule => !string.IsNullOrWhiteSpace(rule.Description)), Is.True);
-        Assert.That(initialIntake.Description, Is.EqualTo("90791: Intake performed by non-MD including LCSW/LPC/etc."));
+        Assert.That(initialIntake.Description, Is.EqualTo("Initial Intake"));
     }
 
     [Test, AutoData]

@@ -56,6 +56,21 @@ public class SqlToLinqConverterTests
     }
 
     [Test, AutoData]
+    public void ConvertToExpression_WithInOperatorOnEnumerable_ShouldMatchAnyItem(SqlToLinqConverter sut)
+    {
+        // Arrange
+        var clause = "Tags in ('A','B')";
+
+        // Act
+        var predicate = sut.ConvertToExpression<TestEntity>(clause);
+
+        // Assert
+        var compiled = predicate.Compile();
+        compiled(new TestEntity { Tags = new[] { "B", "C" } }).Should().BeTrue();
+        compiled(new TestEntity { Tags = new[] { "C", "D" } }).Should().BeFalse();
+    }
+
+    [Test, AutoData]
     public void ConvertToExpression_WithNotInOperator_ShouldExcludeCandidates(SqlToLinqConverter sut)
     {
         // Arrange
@@ -68,6 +83,21 @@ public class SqlToLinqConverterTests
         var compiled = predicate.Compile();
         compiled(new TestEntity { Score = 5 }).Should().BeTrue();
         compiled(new TestEntity { Score = 1 }).Should().BeFalse();
+    }
+
+    [Test, AutoData]
+    public void ConvertToExpression_WithNotInOperatorOnEnumerable_ShouldExcludeMatchingItems(SqlToLinqConverter sut)
+    {
+        // Arrange
+        var clause = "Tags not in ('A','B')";
+
+        // Act
+        var predicate = sut.ConvertToExpression<TestEntity>(clause);
+
+        // Assert
+        var compiled = predicate.Compile();
+        compiled(new TestEntity { Tags = new[] { "C" } }).Should().BeTrue();
+        compiled(new TestEntity { Tags = new[] { "A" } }).Should().BeFalse();
     }
 
     [Test, AutoData]
@@ -119,5 +149,6 @@ public class SqlToLinqConverterTests
         public int Score { get; set; }
         public int? OptionalScore { get; set; }
         public DateTime CreatedOn { get; set; }
+        public string[] Tags { get; set; } = Array.Empty<string>();
     }
 }
